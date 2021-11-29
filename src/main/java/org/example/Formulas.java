@@ -13,6 +13,4 @@ public class Formulas {
     public static float fScore(){
         return 1f;
     }
-
-
 }
