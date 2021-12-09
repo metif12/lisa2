@@ -2,11 +2,9 @@ package org.example;
 
 import org.apache.commons.io.IOUtil;
 import org.apache.lucene.analysis.Analyzer;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.StringField;
-import org.apache.lucene.document.TextField;
+import org.apache.lucene.document.*;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.IndexOptions;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.search.IndexSearcher;
@@ -21,8 +19,6 @@ import java.nio.file.Path;
 
 public class Engine {
 
-    public static final String FIELD_CONTENT = "content";
-    public static final String FIELD_ID = "id";
     public static final String[] CORPUS_NAMES = new String[]{
             "LISA0.001",
             "LISA0.501",
@@ -40,63 +36,48 @@ public class Engine {
             "LISA5.850",
     };
 
-    private final Directory directory;
-    private final IndexWriterConfig config;
-    private final Similarity similarity;
-    private final DirectoryReader directoryReader;
+    private Directory directory;
+    private IndexWriterConfig config;
+    private DirectoryReader directoryReader;
 
+    final private Similarity similarity;
+    final private Analyzer analyzer;
 
-    public Engine(Similarity similarity, Analyzer analyzer) throws IOException {
-
+    public Engine(Analyzer analyzer , Similarity similarity) throws IOException {
+        this.analyzer = analyzer;
         this.similarity = similarity;
+    }
 
-        String similarityClassName = similarity.getClass().getSimpleName();
-        Path indexPath = Files.createDirectory(Path.of("index_" + similarityClassName));
+    public Engine(Analyzer analyzer) throws IOException {
+        this(analyzer, null);
+    }
+
+    public void start() throws IOException {
+
+        String similarityClassName = (similarity != null) ? similarity.getClass().getSimpleName() : "Default";
+
+        Path indexPath = Path.of("index_" + similarityClassName);
+
+        if(!Files.exists(indexPath)) Files.createDirectory(indexPath);
 
         directory = FSDirectory.open(indexPath);
         config = new IndexWriterConfig(analyzer);
-        directoryReader = DirectoryReader.open(directory);
+        config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
 
         //set similarity
-        config.setSimilarity(similarity);
+//        if (similarity!=null) config.setSimilarity(similarity);
 
         buildIndex();
+
+        directoryReader = DirectoryReader.open(directory);
     }
 
     private void buildIndex() throws IOException {
-        final IndexWriter indexWriter;
-        indexWriter = new IndexWriter(directory, config);
-        indexWriter.commit();
 
-        parseCorpus(indexWriter);
+        var indexWriter = new IndexWriter(directory, config);
+        var indexBuilder = new IndexBuilder(indexWriter);
 
-        indexWriter.commit();
-        indexWriter.close();
-    }
-
-    private void parseCorpus(IndexWriter indexWriter) throws IOException {
-        for (String corpus_name : CORPUS_NAMES) {
-            InputStream inputStream = Main.class.getResourceAsStream("\\..\\..\\" + corpus_name);
-            if (inputStream != null) {
-                String text = IOUtil.toString(inputStream);
-
-                for (String rawDoc : text.split("\\r\\n\\*{44}\\r\\n")) {
-
-                    String d = rawDoc.replaceAll("\\r\\n *?\\r\\n", "\r\n\r\n");
-                    int endID = d.indexOf("\r");
-                    String id = d.substring(0, endID).replace("Document", "").trim();
-                    int endContent = d.length() - 1;
-                    String content = d.substring(endID, endContent).trim();
-
-                    //System.out.println(id);
-
-                    Document doc = new Document();
-                    doc.add(new Field("id", id, StringField.TYPE_STORED));
-                    doc.add(new Field("content", content, TextField.TYPE_STORED));
-                    indexWriter.addDocument(doc);
-                }
-            }
-        }
+        indexBuilder.build();
     }
 
     public IndexSearcher getIndexSearcher() throws IOException {
@@ -104,9 +85,17 @@ public class Engine {
         IndexSearcher indexSearcher = new IndexSearcher(directoryReader);
 
         //set similarity
-        indexSearcher.setSimilarity(similarity);
+//        if (similarity!=null) indexSearcher.setSimilarity(similarity);
 
         return indexSearcher;
+    }
+
+    public DirectoryReader getDirectoryReader(){
+        return directoryReader;
+    }
+
+    public Analyzer getAnalyzer(){
+        return analyzer;
     }
 
     public void closeDirectory() throws IOException {
