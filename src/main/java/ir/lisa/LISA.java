@@ -16,7 +16,6 @@ import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
-import org.example.Main;
 import org.tartarus.snowball.ext.PorterStemmer;
 
 import java.io.BufferedWriter;
@@ -169,7 +168,7 @@ public class LISA {
         contentFieldType.freeze();
 
         for (String corpus_name : corpus_names) {
-            InputStream inputStream = Main.class.getResourceAsStream("\\..\\..\\" + corpus_name);
+            InputStream inputStream = LISA.class.getResourceAsStream("\\..\\..\\" + corpus_name);
             if (inputStream != null) {
                 String text = IOUtil.toString(inputStream);
 
@@ -193,8 +192,8 @@ public class LISA {
 
         HashMap<String, Query> queryHashMap = new HashMap<>();
 
-        InputStream queriesInputStream = Main.class.getResourceAsStream("\\..\\..\\LISA.QUE");
-        InputStream queriesDocInputStream = Main.class.getResourceAsStream("\\..\\..\\LISA.REL");
+        InputStream queriesInputStream = LISA.class.getResourceAsStream("\\..\\..\\LISA.QUE");
+        InputStream queriesDocInputStream = LISA.class.getResourceAsStream("\\..\\..\\LISA.REL");
 
         if (queriesInputStream != null) {
             String queriesCorpus = IOUtil.toString(queriesInputStream);
