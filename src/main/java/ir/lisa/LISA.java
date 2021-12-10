@@ -327,7 +327,7 @@ public class LISA {
 
                 var doc_term = bytesRef.utf8ToString();
 
-                //if (!query.terms.contains(doc_term)) continue;
+                if (!query.terms.contains(doc_term)) continue;
 
                 var tf = terms.totalTermFreq();
 
@@ -337,7 +337,7 @@ public class LISA {
 
                 var idf = Math.log(((N-df+0.5f)/(df+0.5f))+1);
 
-                score += (idf * tf * (k1 + 1)) / (tf+k1*(1-b+b*(dl/ (double) avgDl)));
+                score += (idf * tf * (k1 + 1)) / (tf+k1*((1-b)+b*(dl/ (double) avgDl)));
 
             }
 
@@ -352,13 +352,10 @@ public class LISA {
     private ArrayList<Score> likelihood(Query query) throws IOException {
 
         var scores = new ArrayList<Score>();
-
-        int N = directoryReader.maxDoc();
-
         
         for (int docId = 0; docId < directoryReader.maxDoc(); docId++) {
 
-            double score = 0;
+            double score = 1;
 
             var doc = directoryReader.document(docId);
 
@@ -386,7 +383,7 @@ public class LISA {
 
                 var que_tf = query.termFrequencies.get(doc_term);
 
-                double prob = Math.pow((double) doc_tf / dl, (que_tf== null) ? 0 : que_tf);
+                double prob = Math.pow((double) doc_tf / dl, (que_tf== null) ? 1 : que_tf);
                 score *= (prob==0) ? 1e-15 : prob;
 
             }
@@ -424,7 +421,7 @@ public class LISA {
             String exId = scores.get(i).exID;
             double score = scores.get(i).score;
 
-            t.append(String.format("%4d(%1.3f), ", Integer.valueOf(exId), score));
+            t.append(String.format("%4d(%1.5f), ", Integer.valueOf(exId), score));
         }
 
         double recall = getRecall(query, scores, hit);
@@ -434,7 +431,7 @@ public class LISA {
         double ndcg = getNDCG(query, scores, hit);
 
         t.append('\n');
-        t.append(String.format("recall=%1.3f    precision=%1.3f    f-score=%1.3f    avg-p=%1.3f    n-dcg=%1.3f", recall, precision, fScore,ap,ndcg));
+        t.append(String.format("recall=%1.5f    precision=%1.5f    f-score=%1.5f    avg-p=%1.5f    n-dcg=%1.5f", recall, precision, fScore,ap,ndcg));
 
         t.append('\n');
         t.append("---------------------------------------------------------------------------------");
@@ -527,9 +524,9 @@ public class LISA {
 
         lisa.hit = 100;
 
-        var enable_cosine = false;
+        var enable_cosine = true;
         var enable_likelihood = true;
-        var enable_bm25 = false;
+        var enable_bm25 = true;
 
         if(enable_cosine) {
             BufferedWriter writer = new BufferedWriter(new FileWriter("cosine_res.txt"));
@@ -551,7 +548,7 @@ public class LISA {
             }
 
             double map = (count == 0) ? 0 : (sumAp / (double) count);
-            String txt = String.format("MAP: %1.3f", map);
+            String txt = String.format("MAP: %1.5f", map);
 
             writer.write("\n");
             writer.write(txt);
@@ -580,7 +577,7 @@ public class LISA {
             }
 
             double map = (count == 0) ? 0 : (sumAp / (double) count);
-            String txt = String.format("MAP: %1.3f", map);
+            String txt = String.format("MAP: %1.5f", map);
 
             writer.write("\n");
             writer.write(txt);
@@ -609,7 +606,7 @@ public class LISA {
             }
 
             double map = (count == 0) ? 0 : (sumAp / (double) count);
-            String txt = String.format("MAP: %1.3f", map);
+            String txt = String.format("MAP: %1.5f", map);
 
             writer.write("\n");
             writer.write(txt);
