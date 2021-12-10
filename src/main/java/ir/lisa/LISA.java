@@ -58,6 +58,8 @@ public class LISA {
                     .replace(".", " ")
                     .replace(",", " ")
                     .replace("-", " ")
+                    .replace("(", " ")
+                    .replace(")", " ")
                     .split(" ");
 
             for (var token : tokens) {
@@ -312,11 +314,13 @@ public class LISA {
 
             if (vector == null) continue;
 
+            long dl = vector.getSumTotalTermFreq();
+
             TermsEnum terms = vector.iterator();
 
             BytesRef bytesRef;
 
-            var k1 = 1.2f;
+            var k1 = 2.0f;
             var b = 0.75f;
 
             while ((bytesRef = terms.next()) != null) {
@@ -333,7 +337,7 @@ public class LISA {
 
                 var idf = Math.log(((N-df+0.5f)/(df+0.5f))+1);
 
-                score += (idf * tf * (k1 + 1)) / (tf+k1*(1-b+b*(vector.getSumTotalTermFreq()/ (double) avgDl)));
+                score += (idf * tf * (k1 + 1)) / (tf+k1*(1-b+b*(dl/ (double) avgDl)));
 
             }
 
@@ -364,6 +368,8 @@ public class LISA {
 
             if (vector == null) continue;
 
+            long dl = vector.getSumTotalTermFreq();
+
             TermsEnum terms = vector.iterator();
 
             BytesRef bytesRef;
@@ -372,19 +378,15 @@ public class LISA {
 
                 var doc_term = bytesRef.utf8ToString();
 
-                if (!query.terms.contains(doc_term)) continue;
+                //if (!query.terms.contains(doc_term)) continue;
 
                 var doc_tf = terms.totalTermFreq();
 
                 //if (doc_tf <= 0) continue;
 
                 var que_tf = query.termFrequencies.get(doc_term);
-                var doc_df = directoryReader.docFreq(new Term("content", doc_term));
-                double doc_idf = Math.log10((float) N / doc_df);
-                var doc_weight = Math.log10(doc_tf + 1) * doc_idf;
-                var q_weight = Math.log10((que_tf != null ? que_tf : 0) + 1) * doc_idf;
 
-                double prob = (double) doc_tf / vector.getSumTotalTermFreq();
+                double prob = Math.pow((double) doc_tf / dl, (que_tf== null) ? 0 : que_tf);
                 score *= (prob==0) ? 1e-15 : prob;
 
             }
@@ -525,7 +527,11 @@ public class LISA {
 
         lisa.hit = 100;
 
-        {
+        var enable_cosine = false;
+        var enable_likelihood = true;
+        var enable_bm25 = false;
+
+        if(enable_cosine) {
             BufferedWriter writer = new BufferedWriter(new FileWriter("cosine_res.txt"));
 
             var sumAp = 0;
@@ -553,7 +559,8 @@ public class LISA {
 
             writer.close();
         }
-        {
+
+        if(enable_likelihood) {
             BufferedWriter writer = new BufferedWriter(new FileWriter("likelihood_res.txt"));
 
             var sumAp = 0;
@@ -581,7 +588,8 @@ public class LISA {
 
             writer.close();
         }
-        {
+
+        if(enable_bm25) {
             BufferedWriter writer = new BufferedWriter(new FileWriter("bm25_res.txt"));
 
             var sumAp = 0;
