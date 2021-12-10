@@ -19,6 +19,8 @@ import org.apache.lucene.util.BytesRef;
 import org.example.Main;
 import org.tartarus.snowball.ext.PorterStemmer;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -113,7 +115,7 @@ public class LISA {
         directoryReader = DirectoryReader.open(directory);
     }
 
-    private IndexWriterConfig getConfig(){
+    private IndexWriterConfig getConfig() {
         var config = new IndexWriterConfig(analyzer);
         config.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
 
@@ -215,7 +217,7 @@ public class LISA {
                 var idAnswers = queryAnswers.substring(0, endAnswersId).trim();
 
                 var startAnswers = queryAnswers.lastIndexOf("\r\n") + 2;
-                var textAnswers = queryAnswers.substring(startAnswers).replace(" -1","");
+                var textAnswers = queryAnswers.substring(startAnswers).replace(" -1", "");
 
                 var query = queryHashMap.get(idAnswers);
 
@@ -275,10 +277,10 @@ public class LISA {
 
             double score = sumUp / (Math.sqrt(sumDownDoc) * Math.sqrt(sumDownQue));
 
-            if(score > 0) scores.add(new Score(score, externalDocId));
+            if (score > 0) scores.add(new Score(score, externalDocId));
         }
 
-        scores.sort((o1, o2) -> Double.compare(o1.score, o2.score) *-1);
+        scores.sort((o1, o2) -> Double.compare(o1.score, o2.score) * -1);
 
         return scores;
     }
@@ -286,15 +288,15 @@ public class LISA {
 
     int hit = 20;
 
-    private void printMeasurementOfScores(Query query, ArrayList<Score> scores) {
+    private String formatMeasurementOfScoresResult(Query query, ArrayList<Score> scores) {
         StringBuilder t = new StringBuilder();
 
         t.append('\n');
-        t.append(String.format("Query: %s", query.text.replace("\r\n"," ")));
+        t.append(String.format("Query: %s", query.text.replace("\r\n", " ")));
 
         t.append('\n');
         t.append("relevant: ");
-        for (var i = 0; i < hit && i < query.relevantDocExIDs.size() ; i++) {
+        for (var i = 0; i < hit && i < query.relevantDocExIDs.size(); i++) {
 
             String exId = query.relevantDocExIDs.get(i);
 
@@ -303,7 +305,7 @@ public class LISA {
 
         t.append('\n');
         t.append(String.format("TOP@%d: ", hit));
-        for (var i = 0; i < hit && i < scores.size() ; i++) {
+        for (var i = 0; i < hit && i < scores.size(); i++) {
 
             String exId = scores.get(i).exID;
             double score = scores.get(i).score;
@@ -314,17 +316,51 @@ public class LISA {
         double recall = getRecall(query, scores, hit);
         double precision = getPrecision(query, scores, hit);
         double fScore = getFScore(query, scores, hit);
+        double ap = getAP(query, scores, hit);
+        double ndcg = getNDCG(query, scores, hit);
 
         t.append('\n');
-        t.append(String.format("recall=%1.3f    precision=%1.3f    f-score=%1.3f", recall, precision, fScore));
+        t.append(String.format("recall=%1.3f    precision=%1.3f    f-score=%1.3f    avg-p=%1.3f    n-dcg=%1.3f", recall, precision, fScore,ap,ndcg));
 
         t.append('\n');
         t.append("---------------------------------------------------------------------------------");
-        System.out.println(t);
+
+        return String.valueOf(t);
+    }
+
+    private double getNDCG(Query query, ArrayList<Score> scores, int k){
+        var dcg = 0;
+        var len = 0;
+
+        for (var i = 0; i < k; i++) {
+            if (isRelevant(query, scores.get(i).exID)) {
+                var log = (i==1) ? 1 : (Math.log10(i)/Math.log10(2));
+                double cg = (double) scores.get(i).score / log;
+                dcg += cg;
+                len += cg*cg;
+            }
+        }
+        return (dcg == 0) ? 0 : (dcg / Math.sqrt(len));
+    }
+
+    private double getAP(Query query, ArrayList<Score> scores, int k){
+        var n = 0;
+        var sum = 0;
+
+        for (var i = 0; i < k; i++) {
+            if (isRelevant(query, scores.get(i).exID)) {
+                n++;
+                sum += (double) n/i;
+            }
+        }
+        return (n == 0)? 0 : sum / (double) n;
     }
 
     private double getFScore(Query query, ArrayList<Score> scores, int k) {
-        return (double) 1 / ((float) 0.5 * (1 / getRecall(query, scores, k))) + ((1 - (float) 0.5) * (1 / getPrecision(query, scores, k)));
+        double recall = getRecall(query, scores, k);
+        double precision = getPrecision(query, scores, k);
+
+        return (double) 1 / ((float) 0.5 * (1 / recall)) + ((1 - (float) 0.5) * (1 / precision));
     }
 
     private double getRecall(Query query, ArrayList<Score> scores, int k) {
@@ -353,12 +389,16 @@ public class LISA {
         int tp = 0;
 
         for (var i = 0; i < k; i++) {
-            if (query.relevantDocExIDs.contains(scores.get(i).exID)) {
+            if (isRelevant(query, scores.get(i).exID)) {
                 tp++;
             }
         }
 
         return tp;
+    }
+
+    private boolean isRelevant(Query query, String exID) {
+        return query.relevantDocExIDs.contains(exID);
     }
 
 
@@ -371,11 +411,29 @@ public class LISA {
         lisa.buildIndex();
         lisa.loadQueries();
 
+        BufferedWriter writer = new BufferedWriter(new FileWriter("cosine_res.txt"));
+
+        var sumAp=0;
+        var count = 0;
 
         for (var query : lisa.queries) {
             var cosine_scores = lisa.cosine(query);
 
-            lisa.printMeasurementOfScores(query, cosine_scores);
+            sumAp += lisa.getAP(query, cosine_scores, lisa.hit);
+            count++;
+
+            var result = lisa.formatMeasurementOfScoresResult(query, cosine_scores);
+            writer.write(result);
+            System.out.println(result);
         }
+
+        double map = (count ==0) ? 0 : (sumAp / (double) count);
+        String txt = String.format("MAP: %1.3f", map);
+
+        writer.write("\n");
+        writer.write(txt);
+        System.out.println(txt);
+
+        writer.close();
     }
 }
