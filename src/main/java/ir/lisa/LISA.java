@@ -235,7 +235,7 @@ public class LISA {
 
         int N = directoryReader.maxDoc();
 
-        //for calc avgFieldLength
+        
         for (int docId = 0; docId < directoryReader.maxDoc(); docId++) {
 
             double sumUp = 0;
@@ -286,13 +286,72 @@ public class LISA {
         return scores;
     }
 
+    private ArrayList<Score> bm25(Query query) throws IOException {
+
+        var scores = new ArrayList<Score>();
+
+        int N = directoryReader.maxDoc();
+        var avgDl =0;
+
+        //for calc avgFieldLength
+        for (int docId = 0; docId < directoryReader.maxDoc(); docId++) {
+            avgDl += directoryReader.getTermVector(docId, "content").getSumTotalTermFreq();
+        }
+
+        avgDl /= N;
+
+        for (int docId = 0; docId < directoryReader.maxDoc(); docId++) {
+
+            double score = 0;
+
+            var doc = directoryReader.document(docId);
+
+            var externalDocId = doc.get("id");
+
+            Terms vector = directoryReader.getTermVector(docId, "content");
+
+            if (vector == null) continue;
+
+            TermsEnum terms = vector.iterator();
+
+            BytesRef bytesRef;
+
+            var k1 = 1.2f;
+            var b = 0.75f;
+
+            while ((bytesRef = terms.next()) != null) {
+
+                var doc_term = bytesRef.utf8ToString();
+
+                //if (!query.terms.contains(doc_term)) continue;
+
+                var tf = terms.totalTermFreq();
+
+                //if (tf <= 0) continue;
+
+                var df = directoryReader.docFreq(new Term("content", doc_term));
+
+                var idf = Math.log(((N-df+0.5f)/(df+0.5f))+1);
+
+                score += (idf * tf * (k1 + 1)) / (tf+k1*(1-b+b*(vector.getSumTotalTermFreq()/ (double) avgDl)));
+
+            }
+
+            if (score > 0) scores.add(new Score(score, externalDocId));
+        }
+
+        scores.sort((o1, o2) -> Double.compare(o1.score, o2.score) * -1);
+
+        return scores;
+    }
+
     private ArrayList<Score> likelihood(Query query) throws IOException {
 
         var scores = new ArrayList<Score>();
 
         int N = directoryReader.maxDoc();
 
-        //for calc avgFieldLength
+        
         for (int docId = 0; docId < directoryReader.maxDoc(); docId++) {
 
             double score = 0;
@@ -522,5 +581,35 @@ public class LISA {
 
             writer.close();
         }
+        {
+            BufferedWriter writer = new BufferedWriter(new FileWriter("bm25_res.txt"));
+
+            var sumAp = 0;
+            var count = 0;
+
+            writer.write("Hit: " + lisa.hit + "\n");
+
+            for (var query : lisa.queries) {
+                var bm25_scores = lisa.bm25(query);
+
+                sumAp += lisa.getAP(query, bm25_scores, lisa.hit);
+                count++;
+
+                var result = lisa.formatMeasurementOfScoresResult(query, bm25_scores);
+                writer.write(result);
+                System.out.println(result);
+            }
+
+            double map = (count == 0) ? 0 : (sumAp / (double) count);
+            String txt = String.format("MAP: %1.3f", map);
+
+            writer.write("\n");
+            writer.write(txt);
+            System.out.println(txt);
+
+            writer.close();
+        }
+
+        lisa.close();
     }
 }
