@@ -57,6 +57,7 @@ public class LISA {
                     .replace("\r\n", " ")
                     .replace(".", " ")
                     .replace(",", " ")
+                    .replace("-", " ")
                     .split(" ");
 
             for (var token : tokens) {
@@ -285,6 +286,58 @@ public class LISA {
         return scores;
     }
 
+    private ArrayList<Score> likelihood(Query query) throws IOException {
+
+        var scores = new ArrayList<Score>();
+
+        int N = directoryReader.maxDoc();
+
+        //for calc avgFieldLength
+        for (int docId = 0; docId < directoryReader.maxDoc(); docId++) {
+
+            double score = 0;
+
+            var doc = directoryReader.document(docId);
+
+            var externalDocId = doc.get("id");
+
+            Terms vector = directoryReader.getTermVector(docId, "content");
+
+            if (vector == null) continue;
+
+            TermsEnum terms = vector.iterator();
+
+            BytesRef bytesRef;
+
+            while ((bytesRef = terms.next()) != null) {
+
+                var doc_term = bytesRef.utf8ToString();
+
+                if (!query.terms.contains(doc_term)) continue;
+
+                var doc_tf = terms.totalTermFreq();
+
+                //if (doc_tf <= 0) continue;
+
+                var que_tf = query.termFrequencies.get(doc_term);
+                var doc_df = directoryReader.docFreq(new Term("content", doc_term));
+                double doc_idf = Math.log10((float) N / doc_df);
+                var doc_weight = Math.log10(doc_tf + 1) * doc_idf;
+                var q_weight = Math.log10((que_tf != null ? que_tf : 0) + 1) * doc_idf;
+
+                double prob = (double) doc_tf / vector.getSumTotalTermFreq();
+                score *= (prob==0) ? 1e-15 : prob;
+
+            }
+
+            if (score > 0) scores.add(new Score(score, externalDocId));
+        }
+
+        scores.sort((o1, o2) -> Double.compare(o1.score, o2.score) * -1);
+
+        return scores;
+    }
+
 
     int hit = 20;
 
@@ -332,7 +385,7 @@ public class LISA {
         var dcg = 0;
         var len = 0;
 
-        for (var i = 0; i < k; i++) {
+        for (var i = 0; i < k && i < scores.size(); i++) {
             if (isRelevant(query, scores.get(i).exID)) {
                 var log = (i==1) ? 1 : (Math.log10(i)/Math.log10(2));
                 double cg = (double) scores.get(i).score / log;
@@ -347,7 +400,7 @@ public class LISA {
         var n = 0;
         var sum = 0;
 
-        for (var i = 0; i < k; i++) {
+        for (var i = 0; i < k && i < scores.size(); i++) {
             if (isRelevant(query, scores.get(i).exID)) {
                 n++;
                 sum += (double) n/i;
@@ -388,7 +441,7 @@ public class LISA {
     private int getTP(Query query, ArrayList<Score> scores, int k) {
         int tp = 0;
 
-        for (var i = 0; i < k; i++) {
+        for (var i = 0; i < k && i < scores.size(); i++) {
             if (isRelevant(query, scores.get(i).exID)) {
                 tp++;
             }
@@ -411,29 +464,63 @@ public class LISA {
         lisa.buildIndex();
         lisa.loadQueries();
 
-        BufferedWriter writer = new BufferedWriter(new FileWriter("cosine_res.txt"));
+        lisa.hit = 100;
 
-        var sumAp=0;
-        var count = 0;
+        {
+            BufferedWriter writer = new BufferedWriter(new FileWriter("cosine_res.txt"));
 
-        for (var query : lisa.queries) {
-            var cosine_scores = lisa.cosine(query);
+            var sumAp = 0;
+            var count = 0;
 
-            sumAp += lisa.getAP(query, cosine_scores, lisa.hit);
-            count++;
+            writer.write("Hit: " + lisa.hit + "\n");
 
-            var result = lisa.formatMeasurementOfScoresResult(query, cosine_scores);
-            writer.write(result);
-            System.out.println(result);
+            for (var query : lisa.queries) {
+                var cosine_scores = lisa.cosine(query);
+
+                sumAp += lisa.getAP(query, cosine_scores, lisa.hit);
+                count++;
+
+                var result = lisa.formatMeasurementOfScoresResult(query, cosine_scores);
+                writer.write(result);
+                System.out.println(result);
+            }
+
+            double map = (count == 0) ? 0 : (sumAp / (double) count);
+            String txt = String.format("MAP: %1.3f", map);
+
+            writer.write("\n");
+            writer.write(txt);
+            System.out.println(txt);
+
+            writer.close();
         }
+        {
+            BufferedWriter writer = new BufferedWriter(new FileWriter("likelihood_res.txt"));
 
-        double map = (count ==0) ? 0 : (sumAp / (double) count);
-        String txt = String.format("MAP: %1.3f", map);
+            var sumAp = 0;
+            var count = 0;
 
-        writer.write("\n");
-        writer.write(txt);
-        System.out.println(txt);
+            writer.write("Hit: " + lisa.hit + "\n");
 
-        writer.close();
+            for (var query : lisa.queries) {
+                var likelihood_scores = lisa.likelihood(query);
+
+                sumAp += lisa.getAP(query, likelihood_scores, lisa.hit);
+                count++;
+
+                var result = lisa.formatMeasurementOfScoresResult(query, likelihood_scores);
+                writer.write(result);
+                System.out.println(result);
+            }
+
+            double map = (count == 0) ? 0 : (sumAp / (double) count);
+            String txt = String.format("MAP: %1.3f", map);
+
+            writer.write("\n");
+            writer.write(txt);
+            System.out.println(txt);
+
+            writer.close();
+        }
     }
 }
